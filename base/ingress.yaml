@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dashboard-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod   # ClusterIssuer 이름과 동일해야 함
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - dashboard.dev-x.store
+      secretName: webserver-tls
+  rules:
+    - host: dashboard.dev-x.store
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard-service
+                port:
+                  number: 80
