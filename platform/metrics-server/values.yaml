@@ -1,4 +1,4 @@
-args:
+args\:
   - --kubelet-insecure-tls
 resources:
   requests:
