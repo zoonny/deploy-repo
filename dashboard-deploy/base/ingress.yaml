@@ -9,10 +9,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - dashboard.dev-x.store
+        - dashboard.axeng.site
       secretName: webserver-tls
   rules:
-    - host: dashboard.dev-x.store
+    - host: dashboard.axeng.site
       http:
         paths:
           - path: /
