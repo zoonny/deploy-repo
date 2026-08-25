@@ -50,3 +50,26 @@ kubectl delete all --all -n monitoring
 kubectl get all -n monitoring
 
 ```
+
+### billing 서비스 (fe / be / db)
+
+```shell
+# 1) DB 시크릿을 먼저 수동으로 생성 (git에는 값이 없는 템플릿만 존재: billing-deploy/base/db/secret.example.yaml)
+kubectl create secret generic billing-db-secret -n billing \
+  --from-literal=POSTGRES_USER=billing \
+  --from-literal=POSTGRES_PASSWORD='<실값>' \
+  --from-literal=POSTGRES_DB=billing
+
+# 2) ArgoCD Application 등록
+kubectl apply -f billing-deploy/argocd/application-dev.yaml
+
+kubectl get pods -n billing
+kubectl get pvc -n billing
+kubectl get ingress -n billing
+
+# billing.axeng.site      -> React FE (nginx 직접 서빙)
+# billing-api.axeng.site  -> Spring BE (Actuator: /actuator/health)
+
+# DB는 ingress로 노출하지 않음. 내부 접속만 필요:
+kubectl exec -it -n billing billing-db-0 -- psql -U billing -d billing
+```

@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - statefulset.yaml
+  - service.yaml
+# secret.example.yaml은 템플릿 용도이며 여기 포함하지 않습니다.
+# 실제 billing-db-secret은 배포 전 수동으로 적용하세요 (secret.example.yaml 참고).

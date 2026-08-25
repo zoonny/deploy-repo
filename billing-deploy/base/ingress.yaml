@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: billing-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod   # ClusterIssuer 이름과 동일해야 함
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - billing.axeng.site
+        - billing-api.axeng.site
+      secretName: webserver-tls
+  rules:
+    - host: billing.axeng.site
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-fe-service
+                port:
+                  number: 80
+    - host: billing-api.axeng.site
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-be-service
+                port:
+                  number: 8080

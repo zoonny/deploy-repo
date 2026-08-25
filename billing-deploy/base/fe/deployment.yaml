@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-fe
+  labels:
+    app: billing-fe
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: billing-fe
+  template:
+    metadata:
+      labels:
+        app: billing-fe
+    spec:
+      containers:
+        - name: billing-fe
+          image: ghcr.io/zoonny/billing-fe
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

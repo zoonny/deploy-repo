@@ -1,12 +1,16 @@
 # 빌링 서비스 배포 구조 설계안
 
-작성일: 2026-08-18
-상태: **설계안 (아직 매니페스트 미구현)** — 리뷰 후 실제 파일 작성 진행
+작성일: 2026-08-18 (갱신: 원격 pull 반영 → 매니페스트 구현 완료)
+상태: **구현 완료** — `billing-deploy/` 매니페스트 작성 및 `kubectl kustomize` 빌드 검증 완료. 실제 클러스터 배포/이미지 빌드는 별도 진행 필요.
+
+> **최종 결정**: FE는 nginx 직접 서빙(포트 80), BE는 Spring Actuator(`/actuator/health`) 헬스체크 사용, DB는 Helm 대신 StatefulSet 직접 운영으로 확정.
+
+> **변경 이력**: 원격 저장소에서 커밋 `8bbbd90 (Update ingress configuration for new host)`을 pull — `dashboard-deploy/base/ingress.yaml`의 호스트가 `dashboard.dev-x.store` → `dashboard.axeng.site`로 변경됨. 이 설계안의 도메인 컨벤션을 `axeng.site`로 갱신함. (※ `platform/kube-prometheus-stack/ingress.yaml`은 아직 `dev-x.store`로 남아있어 두 도메인이 혼재된 상태 — 기존 인프라 쪽 별개 이슈이며 이번 갱신 범위에는 포함하지 않음)
 
 ## 1. 목표
 
-- React 기반 FO(프론트오피스), Spring 기반 BO(백오피스/API), PostgreSQL DB를 각각 Pod로 배포
-- Ingress를 통해 FO/BO를 외부에서 접속 가능하게 함 (DB는 내부 전용)
+- React 기반 FE(프론트엔드), Spring 기반 BE(백엔드/API), PostgreSQL DB를 각각 Pod로 배포
+- Ingress를 통해 FE/BE를 외부에서 접속 가능하게 함 (DB는 내부 전용)
 - 기존 `deploy-repo`의 GitOps 컨벤션(`dashboard-deploy`)과 일관된 구조 유지
 
 ## 2. 기존 컨벤션 검토 결과
@@ -27,11 +31,11 @@ billing-deploy/
 ├── argocd/
 │   └── application-dev.yaml        # ArgoCD Application: billing-dev
 ├── base/
-│   ├── fo/
+│   ├── fe/
 │   │   ├── deployment.yaml         # React (정적 빌드, nginx로 서빙 가정), port 80
 │   │   ├── service.yaml            # ClusterIP 80
 │   │   └── kustomization.yaml
-│   ├── bo/
+│   ├── be/
 │   │   ├── deployment.yaml         # Spring Boot, port 8080
 │   │   ├── service.yaml            # ClusterIP 8080
 │   │   ├── configmap.yaml          # 비민감 설정 (profile, log level 등)
@@ -41,8 +45,8 @@ billing-deploy/
 │   │   ├── service.yaml            # ClusterIP(headless) 5432, ingress 없음
 │   │   ├── secret.example.yaml     # 템플릿만 커밋 (실값 미포함)
 │   │   └── kustomization.yaml
-│   ├── ingress.yaml                 # fo/bo 서브도메인 라우팅
-│   └── kustomization.yaml           # fo + bo + db + ingress 통합
+│   ├── ingress.yaml                 # fe/be 서브도메인 라우팅
+│   └── kustomization.yaml           # fe + be + db + ingress 통합
 └── overlays/
     └── dev/
         ├── namespace.yaml           # "billing" 네임스페이스
@@ -63,7 +67,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:zoonny/deploy-repo   # 이 저장소 자체를 소스로 사용
+    repoURL: https://github.com/zoonny/deploy-repo.git   # 이 저장소 자체를 소스로 사용
     targetRevision: main
     path: billing-deploy/overlays/dev
   destination:
@@ -82,12 +86,12 @@ spec:
 ## 5. 네트워킹 / Ingress 설계
 
 - 네임스페이스: 전용 `billing` (dashboard의 `dev`와 분리 — DB 라이프사이클/쿼터를 독립적으로 관리하기 위함)
-- 서브도메인 분리 (기존 `dev-x.store` 도메인 컨벤션 재사용):
-  - `billing.dev-x.store` → `billing-fo-service:80` (React FO)
-  - `billing-api.dev-x.store` → `billing-bo-service:8080` (Spring BO API)
+- 서브도메인 분리 (dashboard가 최근 전환한 `axeng.site` 도메인 컨벤션 재사용):
+  - `billing.axeng.site` → `billing-fe-service:80` (React FE)
+  - `billing-api.axeng.site` → `billing-be-service:8080` (Spring BE API)
 - TLS: 기존과 동일하게 `nginx` ingressClass + `cert-manager.io/cluster-issuer: letsencrypt-prod`
-- DB(`billing-db-service`)는 **Ingress에 노출하지 않음** — BO Pod에서만 `billing-db-service.billing.svc.cluster.local:5432`로 접근
-- FO → BO 호출은 브라우저가 `billing-api.dev-x.store`를 직접 호출하는 구조 가정 (BO에 CORS 허용 필요). FO 소스가 API base URL을 빌드 시점 env로 주입받는 구조라면 이 방식이 가장 단순합니다.
+- DB(`billing-db-service`)는 **Ingress에 노출하지 않음** — BE Pod에서만 `billing-db-service.billing.svc.cluster.local:5432`로 접근
+- FE → BE 호출은 브라우저가 `billing-api.axeng.site`를 직접 호출하는 구조 가정 (BE에 CORS 허용 필요). FE 소스가 API base URL을 빌드 시점 env로 주입받는 구조라면 이 방식이 가장 단순합니다.
 
 ## 6. Secret 관리
 
@@ -101,31 +105,53 @@ spec:
     --from-literal=POSTGRES_PASSWORD='<실값>' \
     --from-literal=POSTGRES_DB=billing
   ```
-- BO Deployment는 이 Secret을 env로 주입 (`SPRING_DATASOURCE_USERNAME/PASSWORD`, `SPRING_DATASOURCE_URL`)
+- BE Deployment는 이 Secret을 env로 주입 (`SPRING_DATASOURCE_USERNAME/PASSWORD`, `SPRING_DATASOURCE_URL`)
 - 추후 secret 회전/재현성이 중요해지면 sealed-secrets 또는 SOPS 도입을 검토 (현재 저장소엔 아직 도구 없음, 1차는 수동 방식으로 기존 README 관례를 따름)
 
 ## 7. 이미지 / CI 연동
 
-- FO: `ghcr.io/zoonny/billing-fo`
-- BO: `ghcr.io/zoonny/billing-bo`
+- FE: `ghcr.io/zoonny/billing-fe`
+- BE: `ghcr.io/zoonny/billing-be`
 - DB: 공식 `postgres:16-alpine` (직접 빌드 불필요)
-- `overlays/dev/kustomization.yaml`의 `images:` 필드로 FO/BO 태그 관리 → dashboard-deploy와 동일하게 CI가 빌드 후 태그를 커밋하고 ArgoCD selfHeal로 반영
+- `overlays/dev/kustomization.yaml`의 `images:` 필드로 FE/BE 태그 관리 → dashboard-deploy와 동일하게 CI가 빌드 후 태그를 커밋하고 ArgoCD selfHeal로 반영
 
 ## 8. 리소스 / 헬스체크 초안
 
 | 컴포넌트 | requests | limits | probe |
 |---|---|---|---|
-| FO | 100m / 128Mi | 250m / 256Mi | `/` (nginx) |
-| BO | 250m / 512Mi | 500m / 1Gi | `/actuator/health` (Spring Actuator 필요) |
+| FE | 100m / 128Mi | 250m / 256Mi | `/` (nginx) |
+| BE | 250m / 512Mi | 500m / 1Gi | `/actuator/health` (Spring Actuator 필요) |
 | DB | 250m / 512Mi | 500m / 1Gi, PVC 10Gi (`local-path`) | `pg_isready` exec probe |
 
-## 9. 아직 확정 안 된 부분 (구현 전 확인 필요)
+## 9. 결정 사항 (모두 확정됨)
 
-1. FO가 nginx로 정적 서빙되는 컨테이너인지, Node 서버(`next start` 등)로 3000 포트를 쓰는 방식인지 — Dockerfile 구조에 따라 `deployment.yaml`/`service.yaml` 포트가 달라짐.
-2. BO에 Spring Actuator가 포함되어 있는지 (헬스체크 엔드포인트).
-3. DB를 StatefulSet 직접 관리할지, Bitnami Helm chart로 전환할지 — 백업/복제 요구 수준에 따라 결정.
-4. 도메인은 `dev-x.store` 서브도메인을 그대로 재사용할지, 별도 도메인을 쓸지.
+1. FE: nginx가 React 빌드 산출물을 직접 서빙 (포트 80). `readinessProbe`/`livenessProbe`는 `GET /`.
+2. BE: Spring Actuator 사용. `readinessProbe`/`livenessProbe`는 `GET /actuator/health` (8080). `management.endpoints.web.exposure.include=health,info`는 ConfigMap(`billing-be-config`)으로 주입.
+3. DB: StatefulSet 직접 운영 (`postgres:16-alpine`, `volumeClaimTemplates`로 PVC 10Gi, `local-path` StorageClass). Headless Service(`clusterIP: None`)로 안정적인 파드 DNS 제공.
+4. 도메인: `billing.axeng.site`(FE), `billing-api.axeng.site`(BE) — dashboard가 최근 전환한 `axeng.site` 컨벤션을 따름.
 
-## 10. 다음 단계
+## 10. 구현된 파일 목록
 
-이 설계안에 이견이 없으면, 위 구조대로 실제 Deployment/Service/StatefulSet/Ingress/Kustomization/ArgoCD Application 매니페스트 파일을 작성하겠습니다.
+```
+billing-deploy/
+├── argocd/application-dev.yaml
+├── base/
+│   ├── fe/{deployment,service,kustomization}.yaml
+│   ├── be/{deployment,service,configmap,kustomization}.yaml
+│   ├── db/{statefulset,service,kustomization}.yaml, secret.example.yaml (템플릿, kustomization 미포함)
+│   ├── ingress.yaml
+│   └── kustomization.yaml
+└── overlays/dev/{namespace,kustomization}.yaml
+```
+
+`kubectl kustomize billing-deploy/overlays/dev`로 렌더링 검증 완료.
+저장소 루트에 `.gitignore`를 추가해 `*secret*.yaml` 패턴(실값 시크릿)이 실수로 커밋되지 않도록 했습니다. `*.example.yaml`은 예외로 허용됩니다.
+README.md에 "billing 서비스 (fe / be / db)" 섹션을 추가해 DB 시크릿 수동 생성 → ArgoCD Application 적용 → 확인 커맨드 순서를 문서화했습니다.
+
+## 11. 남은 작업 (이 설계 범위 밖)
+
+- `billing-fe`, `billing-be` 실제 애플리케이션 코드/Dockerfile 작성 및 `ghcr.io/zoonny/billing-fe`, `ghcr.io/zoonny/billing-be` 이미지 빌드·푸시 (현재 `overlays/dev/kustomization.yaml`은 `newTag: latest` placeholder).
+- ArgoCD에 이 저장소(`https://github.com/zoonny/deploy-repo.git`)가 실제로 소스로 등록되어 있는지 확인 (dashboard-deploy처럼 별도 레포로 분리할지도 재확인 필요).
+- BE의 CORS 설정 (FE가 `billing-api.axeng.site`를 브라우저에서 직접 호출).
+- DNS에 `billing.axeng.site` / `billing-api.axeng.site` 레코드 등록, cert-manager 인증서 발급 확인.
+- CI 파이프라인에서 `overlays/dev/kustomization.yaml`의 이미지 태그를 자동 갱신하도록 연결 (dashboard-deploy와 동일 패턴).

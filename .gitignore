@@ -1,0 +1,4 @@
+# 실제 값이 채워진 시크릿 매니페스트는 커밋하지 마세요.
+# 템플릿(*.example.yaml)만 git에 포함됩니다.
+*secret*.yaml
+!*secret*.example.yaml
