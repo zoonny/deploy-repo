@@ -34,6 +34,13 @@ spec:
                 secretKeyRef:
                   name: billing-db-secret
                   key: POSTGRES_PASSWORD
+            # 배포 프로파일(prod·dev)은 운영자 계정이 없으면 기동을 거부한다 (OPS-001 R2).
+            # 시크릿은 커밋하지 않는다 — secret.example.yaml 참고.
+            - name: BILLING_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: billing-admin-secret
+                  key: BILLING_ADMIN_PASSWORD
           readinessProbe:
             httpGet:
               path: /actuator/health

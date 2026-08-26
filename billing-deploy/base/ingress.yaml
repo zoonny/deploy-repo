@@ -16,6 +16,16 @@ spec:
     - host: billing.axeng.site
       http:
         paths:
+          # SPA는 상대경로로 /api를 부른다 — fe 컨테이너의 Caddy는 compose 전용 호스트
+          # (app:8080)를 보고 있어 k8s에서는 해석되지 않으므로 여기서 직접 백엔드로 보낸다.
+          # same-origin이 유지되어 세션 쿠키(SameSite=Strict)도 그대로 동작한다.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-be-service
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:
