@@ -2,8 +2,19 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: billing-be-config
+  labels:
+    app: billing-be
 data:
-  SPRING_PROFILES_ACTIVE: "dev"
-  SPRING_DATASOURCE_URL: "jdbc:postgresql://billing-db-service:5432/billing"
-  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
-  MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
+  # application-prod.yml이 읽는 datasource 노브는 DB_* 뿐이다.
+  # SPRING_DATASOURCE_*를 넣지 말 것 — env가 yml을 이겨 계약이 두 벌이 된다.
+  DB_HOST: "billing-db-service"
+  DB_PORT: "5432"
+  # DB_NAME / DB_USER / DB_PASSWORD는 billing-db-secret에서 온다 (deployment.yaml).
+  # postgres가 실제로 초기화한 값과 어긋나지 않으려면 출처가 하나여야 한다.
+
+  # actuator 노출 정책은 application-prod.yml이 정한다 (OPS-001 R5: health만).
+  # MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE를 여기서 주면 env가 yml을 이겨
+  # /actuator/info까지 열린다 — 절대 넣지 말 것.
+  # 아래는 노출을 늘리지 않는다: 이미 열린 health의 하위 그룹
+  # (/actuator/health/liveness, /actuator/health/readiness)을 보장할 뿐이다.
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"

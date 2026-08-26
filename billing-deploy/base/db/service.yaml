@@ -5,7 +5,11 @@ metadata:
   labels:
     app: billing-db
 spec:
-  clusterIP: None
+  # headless가 아니어도 된다 — 복제·피어 디스커버리가 없고 BE는 서비스 이름으로만
+  # 붙는다. 고정 VIP가 파드 IP 변경에 더 강하다 (JVM DNS 캐시 30초).
+  # 주의: spec.clusterIP는 불변이다. 클러스터에 이미 headless로 존재하면
+  # apply가 실패하므로 먼저 kubectl delete svc billing-db-service -n billing.
+  type: ClusterIP
   selector:
     app: billing-db
   ports:

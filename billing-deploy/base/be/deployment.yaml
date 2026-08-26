@@ -5,7 +5,11 @@ metadata:
   labels:
     app: billing-be
 spec:
-  replicas: 2
+  # 세션이 JVM 힙에 있다 (InMemoryUserDetailsManager, 세션 저장소 없음) —
+  # 2개면 요청이 다른 파드로 튈 때마다 로그아웃된다.
+  replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: billing-be
@@ -24,28 +28,62 @@ spec:
             - configMapRef:
                 name: billing-be-config
           env:
-            - name: SPRING_DATASOURCE_USERNAME
+            # DB 이름·계정은 postgres를 초기화한 시크릿에서 그대로 가져온다.
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: billing-db-secret
+                  key: POSTGRES_DB
+            - name: DB_USER
               valueFrom:
                 secretKeyRef:
                   name: billing-db-secret
                   key: POSTGRES_USER
-            - name: SPRING_DATASOURCE_PASSWORD
+            - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: billing-db-secret
                   key: POSTGRES_PASSWORD
-          readinessProbe:
+            # 없으면 prod 프로파일이 기동을 거부한다 (OPS-001 R2, ProdAccountGuard).
+            - name: BILLING_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: billing-admin-secret
+                  key: BILLING_ADMIN_USERNAME
+            - name: BILLING_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: billing-admin-secret
+                  key: BILLING_ADMIN_PASSWORD
+          # 톰캣은 Flyway 마이그레이션이 끝난 뒤에야 접속을 받는다 —
+          # 기동 예산은 startupProbe로 따로 준다 (최대 20 + 36*5 = 200초).
+          # startupProbe가 있으면 kubelet은 기동 성공 전까지 아래 두 probe를 돌리지
+          # 않으므로 readiness/liveness의 initialDelaySeconds는 의도적으로 뺐다.
+          startupProbe:
             httpGet:
               path: /actuator/health
               port: 8080
             initialDelaySeconds: 20
-            periodSeconds: 10
-          livenessProbe:
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          # readiness는 db 인디케이터를 포함한 집계값 — DB가 죽으면 엔드포인트에서 빠진다.
+          readinessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # liveness는 livenessState만 본다. 집계 health를 쓰면 DB가 잠깐 흔들릴 때
+          # 파드가 죽고, 재기동 시 Flyway가 실패해 CrashLoopBackOff로 번진다.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
             periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             requests:
               cpu: "250m"

@@ -5,17 +5,42 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     cert-manager.io/cluster-issuer: letsencrypt-prod   # ClusterIssuer 이름과 동일해야 함
+    # 청구 실행(POST /api/v1/billing-runs)은 동기다 — nginx 기본 60초로는 504가 난다.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
 spec:
   ingressClassName: nginx
   tls:
     - hosts:
         - billing.axeng.site
-        - billing-api.axeng.site
       secretName: webserver-tls
   rules:
+    # 단일 호스트 경로 라우팅 — FE와 API가 반드시 같은 오리진이어야 한다.
+    # 세션 쿠키는 SameSite=Strict + Secure이고(OPS-001 R4), SPA의 fetch는
+    # credentials 옵션이 없어(기본 same-origin) 다른 오리진에는 쿠키가 실리지 않는다.
+    # 서브도메인 분리는 CORS를 열어도 동작하지 않는다 — frontend-admin/src/api/http.ts 참고.
+    #
+    # nginx는 설정 순서와 무관하게 최장 prefix location을 고르므로
+    # /api·/actuator/health가 /를 이긴다.
+    # rewrite-target을 넣지 말 것 — 백엔드는 /api/v1/... 전체 경로를 기대하고,
+    # 이 annotation은 ingress-nginx를 regex location 모드로 바꿔 매칭 의미를 흔든다.
     - host: billing.axeng.site
       http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-be-service
+                port:
+                  number: 8080
+          - path: /actuator/health
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-be-service
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:
@@ -23,13 +48,3 @@ spec:
                 name: billing-fe-service
                 port:
                   number: 80
-    - host: billing-api.axeng.site
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: billing-be-service
-                port:
-                  number: 8080

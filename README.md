@@ -54,22 +54,45 @@ kubectl get all -n monitoring
 ### billing 서비스 (fe / be / db)
 
 ```shell
-# 1) DB 시크릿을 먼저 수동으로 생성 (git에는 값이 없는 템플릿만 존재: billing-deploy/base/db/secret.example.yaml)
+# 1) 시크릿 2개를 먼저 수동 생성 (git에는 값 없는 템플릿만 존재:
+#    billing-deploy/base/db/secret.example.yaml, billing-deploy/base/be/secret.example.yaml)
+kubectl create namespace billing
+
 kubectl create secret generic billing-db-secret -n billing \
   --from-literal=POSTGRES_USER=billing \
   --from-literal=POSTGRES_PASSWORD='<실값>' \
   --from-literal=POSTGRES_DB=billing
 
-# 2) ArgoCD Application 등록
+# BILLING_ADMIN_PASSWORD가 없으면 BE는 기동을 거부한다 (OPS-001 R2, ProdAccountGuard).
+# DB 시크릿과 분리한 이유: billing-db-secret은 postgres 컨테이너가 envFrom으로
+# 통째로 가져가므로 앱 관리자 비밀번호가 섞이면 안 된다.
+kubectl create secret generic billing-admin-secret -n billing \
+  --from-literal=BILLING_ADMIN_USERNAME=admin \
+  --from-literal=BILLING_ADMIN_PASSWORD='<실값>'
+
+# 2) ArgoCD Application 등록 (시크릿 생성 후에! 안 그러면 CreateContainerConfigError)
 kubectl apply -f billing-deploy/argocd/application-dev.yaml
 
 kubectl get pods -n billing
 kubectl get pvc -n billing
 kubectl get ingress -n billing
 
-# billing.axeng.site      -> React FE (nginx 직접 서빙)
-# billing-api.axeng.site  -> Spring BE (Actuator: /actuator/health)
+# 단일 호스트 경로 라우팅 — FE와 API가 같은 오리진이어야 한다.
+# 세션 쿠키가 SameSite=Strict이고 SPA의 fetch에 credentials 옵션이 없어서,
+# 서브도메인을 분리하면 CORS를 열어도 로그인이 동작하지 않는다 (OPS-001 R4).
+#   https://billing.axeng.site/                 -> React FE (Caddy 정적 서빙 + SPA 폴백)
+#   https://billing.axeng.site/api/**           -> Spring BE
+#   https://billing.axeng.site/actuator/health  -> Spring BE (prod는 health만 공개, R5)
+#
+# /swagger-ui·/v3/api-docs는 ingress에 노출하지 않는다 — port-forward로만 접근.
+# 주의: FE 서비스에 직접 port-forward해서 /api를 치면 Caddy가 502를 낸다.
+#       Caddyfile의 upstream(app:8080)은 compose 전용이고, k8s에서는 ingress가
+#       /api를 BE로 먼저 보내므로 그 핸들러에 도달하지 않는다.
 
 # DB는 ingress로 노출하지 않음. 내부 접속만 필요:
 kubectl exec -it -n billing billing-db-0 -- psql -U billing -d billing
+
+# 백업 (임시 수동 절차 — CronJob 미도입. 사유는 BILLING_DEPLOYMENT_PLAN.md 참고)
+kubectl exec -n billing billing-db-0 -- pg_dump -U billing -d billing --no-owner \
+  | gzip > billing-$(date +%Y%m%d-%H%M%S).sql.gz
 ```

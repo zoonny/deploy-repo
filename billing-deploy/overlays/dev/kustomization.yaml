@@ -4,11 +4,11 @@ kind: Kustomization
 namespace: billing
 
 resources:
-  - namespace.yaml
-  - ../../base
+- namespace.yaml
+- ../../base
 
 images:
-  - name: ghcr.io/zoonny/billing-fe
-    newTag: latest
-  - name: ghcr.io/zoonny/billing-be
-    newTag: latest
+- name: ghcr.io/zoonny/billing-be
+  newTag: latest
+- name: ghcr.io/zoonny/billing-fe
+  newTag: latest
