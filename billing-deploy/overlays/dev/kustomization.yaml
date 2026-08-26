@@ -9,6 +9,6 @@ resources:
 
 images:
   - name: ghcr.io/zoonny/billing-fe
-    newTag: latest
+    newTag: 71a41b4d899d7bd5888914d512d2555ce103a33f
   - name: ghcr.io/zoonny/billing-be
-    newTag: latest
+    newTag: 71a41b4d899d7bd5888914d512d2555ce103a33f
