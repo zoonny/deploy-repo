@@ -14,6 +14,10 @@ spec:
       labels:
         app: billing-fe
     spec:
+      # be와 동일 — GHCR 패키지가 private이라 pull secret이 필요하다.
+      # ghcr-secret은 git에 없다 (README의 kubectl create secret docker-registry 절차).
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: billing-fe
           image: ghcr.io/zoonny/billing-fe

@@ -133,7 +133,18 @@ spec:
   kubectl create secret generic billing-admin-secret -n billing \
     --from-literal=BILLING_ADMIN_USERNAME=admin \
     --from-literal=BILLING_ADMIN_PASSWORD='<실값>'
+
+  kubectl create secret docker-registry ghcr-secret -n billing \
+    --docker-server=ghcr.io \
+    --docker-username=zoonny \
+    --docker-password='<PAT: read:packages>'
   ```
+- **`ghcr-secret`은 성격이 다르다** — 위 두 개는 앱 컨테이너가 env로 읽지만, 이건 **kubelet**이
+  이미지를 받을 때 쓴다(`type: kubernetes.io/dockerconfigjson`). `base/{fe,be}/deployment.yaml`의
+  `imagePullSecrets`가 이름으로 참조하며, 파드와 **같은 네임스페이스**에 있어야 한다.
+  템플릿(`*.example.yaml`)을 두지 않은 이유: `.dockerconfigjson`은 손으로 편집할 값이 아니라
+  `kubectl create secret docker-registry`가 조립하는 값이다. PAT는 **classic + `read:packages`** —
+  `GITHUB_TOKEN`은 CI 런 동안만 유효해서 클러스터에 넣으면 만료 시 pull이 조용히 깨진다.
 - **admin 시크릿을 DB 시크릿과 분리한 이유**: `base/db/statefulset.yaml`이
   `envFrom: secretRef: billing-db-secret`으로 **모든 키**를 postgres 컨테이너 환경에 넣는다.
   앱 관리자 자격증명이 DB 컨테이너에 섞이면 안 되고, 회전 주기도 다르다(DB는 `ALTER ROLE`
@@ -150,7 +161,8 @@ spec:
 
 - FE: `ghcr.io/zoonny/billing-fe`
 - BE: `ghcr.io/zoonny/billing-be`
-- DB: 공식 `postgres:16-alpine` (직접 빌드 불필요)
+- DB: 공식 `postgres:16-alpine` (직접 빌드 불필요, Docker Hub public이라 pull secret 대상 아님)
+- **FE/BE의 GHCR 패키지는 private으로 유지**하고 `ghcr-secret`으로 pull한다 (§9-6)
 - `overlays/dev/kustomization.yaml`의 `images:` 필드로 FE/BE 태그 관리 → dashboard-deploy와 동일하게 CI가 빌드 후 태그를 커밋하고 ArgoCD selfHeal로 반영
 
 ## 8. 리소스 / 헬스체크 초안
@@ -192,6 +204,14 @@ spec:
    세션 저장소 없음) 2개면 요청이 다른 파드로 튈 때마다 로그아웃된다. 가용성을 우선하려면
    `replicas: 2` + ingress 쿠키 어피니티(`nginx.ingress.kubernetes.io/affinity: cookie`)가
    대안이지만, 롤아웃·축출 때의 세션 유실은 여전히 남으므로 권장하지 않는다.
+6. **GHCR 패키지는 private 유지 + `imagePullSecrets: ghcr-secret`.** CI가 `GITHUB_TOKEN`으로
+   푸시하면 패키지가 private으로 생기는데, 최초 작성본은 `imagePullSecrets`가 없어 그대로면
+   `ImagePullBackOff`였다. 대안이던 "패키지를 public 전환"(dashboard의 방식)은 이미지를 공개하게
+   되므로 채택하지 않았다 — **dashboard와 컨벤션이 갈라지는 지점이니 주의.** 시크릿은
+   `base/{fe,be}/deployment.yaml`의 파드 스펙에 직접 건다. `billing` ns의 `default`
+   ServiceAccount에 붙이는 방법도 있지만, git에 남지 않는 암묵적 설정이라 배제했다.
+   `ghcr-secret`은 수동 생성이라 ArgoCD 추적 라벨이 없고, 따라서 `prune: true`의 대상이 아니다
+   (기존 두 시크릿과 동일).
 
 ## 10. 구현된 파일 목록
 
@@ -209,19 +229,19 @@ billing-deploy/
 
 `kubectl kustomize billing-deploy/overlays/dev`로 렌더링 검증 완료.
 저장소 루트에 `.gitignore`를 추가해 `*secret*.yaml` 패턴(실값 시크릿)이 실수로 커밋되지 않도록 했습니다. `*.example.yaml`은 예외로 허용됩니다.
-README.md에 "billing 서비스 (fe / be / db)" 섹션을 추가해 시크릿 2개 수동 생성 → ArgoCD Application 적용 → 확인 커맨드 순서를 문서화했습니다.
+README.md에 "billing 서비스 (fe / be / db)" 섹션을 추가해 시크릿 3개(`billing-db-secret`, `billing-admin-secret`, `ghcr-secret`) 수동 생성 → ArgoCD Application 적용 → 확인 커맨드 순서를 문서화했습니다.
 
 ## 11. 남은 작업 (이 설계 범위 밖)
 
 - **클러스터 실배포 미검증** — 로컬에 kubecontext가 없어 `kubectl kustomize` 렌더까지만 확인했다.
   서버 dry-run·스모크 체크는 수행하지 않았다.
+- **`ghcr-secret` 생성** — classic PAT(`read:packages`) 발급 후 README §billing의 커맨드 실행.
+  매니페스트의 `imagePullSecrets`만 머지되고 시크릿이 없으면 파드가 `ImagePullBackOff`로 남는다.
+  PAT에 만료일을 걸었다면 회전 일정을 별도로 관리해야 한다 (README에 회전 절차 기재).
 - `ghcr.io/zoonny/billing-fe`, `ghcr.io/zoonny/billing-be` 이미지 최초 빌드·푸시.
   현재 `overlays/dev/kustomization.yaml`은 `newTag: latest` placeholder인데,
   `imagePullPolicy: IfNotPresent`와 조합되면 노드가 처음 받은 `latest`에 고정되어 배포가
   조용히 무효화된다 — **CI 첫 실행이 반드시 실제 SHA로 교체해야 한다.**
-- **GHCR 패키지를 public으로 전환** — `GITHUB_TOKEN`으로 처음 푸시하면 private이 기본이고,
-  fe/be deployment에 `imagePullSecrets`가 없어 그대로면 `ImagePullBackOff`가 난다.
-  (dashboard도 같은 방식이라 컨벤션 일치)
 - ArgoCD에 이 저장소(`https://github.com/zoonny/deploy-repo.git`)가 실제로 소스로 등록되어 있는지 확인 (dashboard-deploy처럼 별도 레포로 분리할지도 재확인 필요).
 - DNS에 `billing.axeng.site` A 레코드 등록, cert-manager 인증서 발급 확인.
   (`billing-api.axeng.site`는 폐기 — 레코드가 있다면 제거 가능)

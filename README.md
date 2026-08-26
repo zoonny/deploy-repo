@@ -54,8 +54,9 @@ kubectl get all -n monitoring
 ### billing 서비스 (fe / be / db)
 
 ```shell
-# 1) 시크릿 2개를 먼저 수동 생성 (git에는 값 없는 템플릿만 존재:
-#    billing-deploy/base/db/secret.example.yaml, billing-deploy/base/be/secret.example.yaml)
+# 1) 시크릿 3개를 먼저 수동 생성 (git에 실값은 없다 — db/be는 값 없는 템플릿만 존재:
+#    billing-deploy/base/db/secret.example.yaml, billing-deploy/base/be/secret.example.yaml.
+#    ghcr-secret은 템플릿도 없고 아래 커맨드가 유일한 정의다)
 kubectl create namespace billing
 
 kubectl create secret generic billing-db-secret -n billing \
@@ -69,6 +70,20 @@ kubectl create secret generic billing-db-secret -n billing \
 kubectl create secret generic billing-admin-secret -n billing \
   --from-literal=BILLING_ADMIN_USERNAME=admin \
   --from-literal=BILLING_ADMIN_PASSWORD='<실값>'
+
+# GHCR 이미지 pull 시크릿. billing-fe/billing-be 패키지가 private이라
+# (CI가 GITHUB_TOKEN으로 푸시 → 기본 private) 없으면 ImagePullBackOff가 난다.
+# PAT는 classic + read:packages 스코프. GITHUB_TOKEN은 CI 런 동안만 유효하므로 쓰면 안 된다.
+# 앱이 아니라 kubelet이 쓰는 시크릿이라 fe/be deployment의 imagePullSecrets가 참조한다.
+kubectl create secret docker-registry ghcr-secret -n billing \
+  --docker-server=ghcr.io \
+  --docker-username=zoonny \
+  --docker-password='<PAT: read:packages>'
+
+# PAT 만료 시 pull이 조용히 깨진다. 회전은 삭제 후 재생성 + 파드 재시작:
+#   kubectl delete secret ghcr-secret -n billing
+#   (위 create를 새 PAT로 다시 실행)
+#   kubectl rollout restart deploy/billing-be deploy/billing-fe -n billing
 
 # 2) ArgoCD Application 등록 (시크릿 생성 후에! 안 그러면 CreateContainerConfigError)
 kubectl apply -f billing-deploy/argocd/application-dev.yaml

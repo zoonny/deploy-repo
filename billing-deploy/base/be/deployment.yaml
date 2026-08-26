@@ -18,6 +18,11 @@ spec:
       labels:
         app: billing-be
     spec:
+      # GHCR 패키지가 private이다 — CI가 GITHUB_TOKEN으로 푸시하면 기본이 private이라
+      # 이게 없으면 kubelet이 익명 pull을 시도하다 ImagePullBackOff로 떨어진다.
+      # ghcr-secret은 git에 없다 (README의 kubectl create secret docker-registry 절차).
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: billing-be
           image: ghcr.io/zoonny/billing-be
