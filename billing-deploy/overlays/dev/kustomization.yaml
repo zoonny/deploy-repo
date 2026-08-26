@@ -9,6 +9,6 @@ resources:
 
 images:
   - name: ghcr.io/zoonny/billing/web
-    newTag: 71a41b4d899d7bd5888914d512d2555ce103a33f
+    newTag: 66f13abac96be7beaab64dcd51d8f9687f6691d6
   - name: ghcr.io/zoonny/billing/app
-    newTag: 71a41b4d899d7bd5888914d512d2555ce103a33f
+    newTag: 66f13abac96be7beaab64dcd51d8f9687f6691d6
