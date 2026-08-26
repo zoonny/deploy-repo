@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: billing-fe
-          image: ghcr.io/zoonny/billing-fe
+          image: ghcr.io/zoonny/billing/web
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
