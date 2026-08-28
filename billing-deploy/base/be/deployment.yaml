@@ -5,7 +5,8 @@ metadata:
   labels:
     app: billing-be
 spec:
-  replicas: 2
+  # 노드 CPU 여유 확보를 위해 일시적으로 1 replica로 축소
+  replicas: 1
   selector:
     matchLabels:
       app: billing-be
@@ -41,22 +42,35 @@ spec:
                 secretKeyRef:
                   name: billing-admin-secret
                   key: BILLING_ADMIN_PASSWORD
+          # 느린 기동(102초)을 startupProbe가 흡수하도록 추가.
+          # 10s × 30회 = 최대 300초까지 기동 대기, 성공 시 liveness로 전환
+          startupProbe:
+            httpGet: 
+              path: /actuator/health
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 30
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 20
+            initialDelaySeconds: 0
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 30
+            initialDelaySeconds: 0
             periodSeconds: 20
+            timeoutSeconds: 5           # 1초는 GC/부하 시 오탐 유발
+            failureThreshold: 3
           resources:
             requests:
               cpu: "250m"
               memory: "512Mi"
             limits:
-              cpu: "500m"
+              cpu: "1000m"
               memory: "1Gi"
